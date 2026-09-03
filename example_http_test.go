@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/tokenmaxed/jsonschema/v6"
 )
 
 type HTTPURLLoader http.Client

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/tokenmaxed/jsonschema/v6"
 )
 
 func TestMetaschemaResource(t *testing.T) {
