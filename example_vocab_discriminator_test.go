@@ -5,7 +5,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/tokenmaxed/jsonschema/v6"
 )
 
 // SchemaExt --

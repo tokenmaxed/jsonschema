@@ -1,5 +1,10 @@
 # jsonschema v6.0.3
 
+This branch publishes the maintained root library module at
+`github.com/tokenmaxed/jsonschema/v6`. See [UPSTREAM.md](UPSTREAM.md) for its
+small downstream patch stack and update procedure. The independently versioned
+`cmd/jv` module remains an upstream module.
+
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![GoDoc](https://godoc.org/github.com/santhosh-tekuri/jsonschema?status.svg)](https://pkg.go.dev/github.com/santhosh-tekuri/jsonschema/v6)
 [![Go Report Card](https://goreportcard.com/badge/github.com/santhosh-tekuri/jsonschema/v6)](https://goreportcard.com/report/github.com/santhosh-tekuri/jsonschema/v6)
@@ -85,4 +90,3 @@ Options:
 - [x] http(s) url support
   - [x] custom certs for validation, use `--cacert`
   - [x] flag to skip certificate verification, use `--insecure`
-
