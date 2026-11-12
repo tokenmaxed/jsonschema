@@ -3,7 +3,7 @@
 This repository is a maintained fork of
 [`github.com/santhosh-tekuri/jsonschema`](https://github.com/santhosh-tekuri/jsonschema).
 It starts from upstream `boon` commit
-[`ec6106e`](https://github.com/santhosh-tekuri/jsonschema/commit/ec6106e5f0a342f025769a4da8e2d56c2dc10321).
+[`30a6630`](https://github.com/santhosh-tekuri/jsonschema/commit/30a66301c6f652f3be07603de8f00a7c5214a976).
 
 The root module path is deliberately
 `github.com/tokenmaxed/jsonschema/v6`, so consumers receive the fork without

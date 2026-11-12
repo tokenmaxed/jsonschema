@@ -209,6 +209,14 @@ func validateDuration(v any) error {
 	return nil
 }
 
+// atoi is like strconv.Atoi, but ensures no leading '+' or '-' sign.
+func atoi(s string) (int, error) {
+	if s != "" && (s[0] == '+' || s[0] == '-') {
+		return 0, &strconv.NumError{Func: "Atoi", Num: s, Err: strconv.ErrSyntax}
+	}
+	return strconv.Atoi(s)
+}
+
 func validateIPV4(v any) error {
 	s, ok := v.(string)
 	if !ok {
@@ -222,7 +230,7 @@ func validateIPV4(v any) error {
 		if len(group) > 1 && group[0] == '0' {
 			return LocalizableError("leading zeros")
 		}
-		n, err := strconv.Atoi(group)
+		n, err := atoi(group)
 		if err != nil {
 			return err
 		}
@@ -313,6 +321,10 @@ func validateEmail(v any) error {
 	}
 	local, domain := s[:at], s[at+1:]
 
+	if local == "" {
+		return LocalizableError("empty local part")
+	}
+
 	// local part may be up to 64 characters long
 	if len(local) > 64 {
 		return LocalizableError("local part more than 64 characters long")
@@ -321,6 +333,9 @@ func validateEmail(v any) error {
 	if len(local) > 1 && strings.HasPrefix(local, `"`) && strings.HasSuffix(local, `"`) {
 		// quoted
 		local := local[1 : len(local)-1]
+		if local == "" {
+			return LocalizableError("empty local part")
+		}
 		if strings.IndexByte(local, '\\') != -1 || strings.IndexByte(local, '"') != -1 {
 			return LocalizableError("backslash and quote are not allowed within quoted local part")
 		}
@@ -403,7 +418,7 @@ func validateTime(v any) error {
 	// parse hh:mm:ss
 	var hms []int
 	for _, tok := range strings.SplitN(str[:8], ":", 3) {
-		i, err := strconv.Atoi(tok)
+		i, err := atoi(tok)
 		if err != nil {
 			return LocalizableError("invalid hour/min/sec")
 		}
@@ -458,7 +473,7 @@ func validateTime(v any) error {
 
 		var zhm []int
 		for _, tok := range strings.SplitN(str, ":", 2) {
-			i, err := strconv.Atoi(tok)
+			i, err := atoi(tok)
 			if err != nil {
 				return LocalizableError("invalid hour/min in offset")
 			}

@@ -466,17 +466,20 @@ func (vd *validator) strValidate(str string) {
 	var err error
 
 	// contentEncoding --
-	decoded := []byte(str)
+	var decoded []byte
+	var decodeErr error = nil
 	if s.ContentEncoding != nil {
-		decoded, err = s.ContentEncoding.Decode(str)
-		if err != nil {
-			decoded = nil
-			vd.addError(&kind.ContentEncoding{Want: s.ContentEncoding.Name, Err: err})
+		decoded, decodeErr = s.ContentEncoding.Decode(str)
+		if decodeErr != nil {
+			vd.addError(&kind.ContentEncoding{Want: s.ContentEncoding.Name, Err: decodeErr})
 		}
 	}
 
 	var deserialized *any
-	if decoded != nil && s.ContentMediaType != nil {
+	if decodeErr == nil && s.ContentMediaType != nil {
+		if decoded == nil {
+			decoded = []byte(str)
+		}
 		if s.ContentSchema == nil {
 			err = s.ContentMediaType.Validate(decoded)
 		} else {
@@ -515,38 +518,41 @@ func (vd *validator) strValidate(str string) {
 func (vd *validator) numValidate(v any) {
 	s := vd.sch
 
-	var numVal *big.Rat
-	num := func() *big.Rat {
-		if numVal == nil {
-			numVal, _ = new(big.Rat).SetString(fmt.Sprintf("%v", v))
-		}
-		return numVal
+	if s.Minimum == nil && s.Maximum == nil &&
+		s.ExclusiveMinimum == nil && s.ExclusiveMaximum == nil &&
+		s.MultipleOf == nil {
+		return
+	}
+	num, ok := new(big.Rat).SetString(fmt.Sprintf("%v", v))
+	if !ok {
+		vd.addError(&kind.LargeNumber{Value: v})
+		return
 	}
 
 	// minimum --
-	if s.Minimum != nil && num().Cmp(s.Minimum) < 0 {
-		vd.addError(&kind.Minimum{Got: num(), Want: s.Minimum})
+	if s.Minimum != nil && num.Cmp(s.Minimum) < 0 {
+		vd.addError(&kind.Minimum{Got: num, Want: s.Minimum})
 	}
 
 	// maximum --
-	if s.Maximum != nil && num().Cmp(s.Maximum) > 0 {
-		vd.addError(&kind.Maximum{Got: num(), Want: s.Maximum})
+	if s.Maximum != nil && num.Cmp(s.Maximum) > 0 {
+		vd.addError(&kind.Maximum{Got: num, Want: s.Maximum})
 	}
 
 	// exclusiveMinimum
-	if s.ExclusiveMinimum != nil && num().Cmp(s.ExclusiveMinimum) <= 0 {
-		vd.addError(&kind.ExclusiveMinimum{Got: num(), Want: s.ExclusiveMinimum})
+	if s.ExclusiveMinimum != nil && num.Cmp(s.ExclusiveMinimum) <= 0 {
+		vd.addError(&kind.ExclusiveMinimum{Got: num, Want: s.ExclusiveMinimum})
 	}
 
 	// exclusiveMaximum
-	if s.ExclusiveMaximum != nil && num().Cmp(s.ExclusiveMaximum) >= 0 {
-		vd.addError(&kind.ExclusiveMaximum{Got: num(), Want: s.ExclusiveMaximum})
+	if s.ExclusiveMaximum != nil && num.Cmp(s.ExclusiveMaximum) >= 0 {
+		vd.addError(&kind.ExclusiveMaximum{Got: num, Want: s.ExclusiveMaximum})
 	}
 
 	// multipleOf
 	if s.MultipleOf != nil {
-		if q := new(big.Rat).Quo(num(), s.MultipleOf); !q.IsInt() {
-			vd.addError(&kind.MultipleOf{Got: num(), Want: s.MultipleOf})
+		if q := new(big.Rat).Quo(num, s.MultipleOf); !q.IsInt() {
+			vd.addError(&kind.MultipleOf{Got: num, Want: s.MultipleOf})
 		}
 	}
 }
