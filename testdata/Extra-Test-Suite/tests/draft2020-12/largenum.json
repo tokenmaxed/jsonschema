@@ -1,0 +1,101 @@
+[
+	{
+		"description": "minimum",
+		"schema": {
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"minimum": 0
+		},
+		"tests": [
+			{
+				"description": "large exponent",
+				"data": 1e9999999,
+				"valid": false
+			}
+		]
+	},
+	{
+		"description": "maximum",
+		"schema": {
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"maximum": 0
+		},
+		"tests": [
+			{
+				"description": "large exponent",
+				"data": 1e9999999,
+				"valid": false
+			}
+		]
+	},
+	{
+		"description": "exclusiveMinimum",
+		"schema": {
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"exclusiveMinimum": 0
+		},
+		"tests": [
+			{
+				"description": "large exponent",
+				"data": 1e9999999,
+				"valid": false
+			}
+		]
+	},
+	{
+		"description": "exclusiveMaximum",
+		"schema": {
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"exclusiveMaximum": 10
+		},
+		"tests": [
+			{
+				"description": "large exponent",
+				"data": 1e9999999,
+				"valid": false
+			}
+		]
+	},
+	{
+		"description": "multipleOf",
+		"schema": {
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"multipleOf": 10
+		},
+		"tests": [
+			{
+				"description": "large exponent",
+				"data": 1e9999999,
+				"valid": false
+			}
+		]
+	},
+	{
+		"description": "uniqueItems",
+		"schema": {
+			"$schema": "https://json-schema.org/draft/2020-12/schema",
+			"uniqueItems": true
+		},
+		"tests": [
+			{
+				"description": "same large exponent twice",
+				"data": [1e9999999, 1e9999999],
+				"valid": false
+			},
+			{
+				"description": "large exponent among other numbers",
+				"data": [0, 1e9999999],
+				"valid": false
+			},
+			{
+				"description": "large exponent among more than 20 items",
+				"data": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 1e9999999],
+				"valid": false
+			},
+			{
+				"description": "large exponent in a nested item among more than 20 items",
+				"data": [[0], [1], [2], [3], [4], [5], [6], [7], [8], [9], [10], [11], [12], [13], [14], [15], [16], [17], [18], [19], [20], [1e9999999]],
+				"valid": false
+			}
+		]
+	}
+]
