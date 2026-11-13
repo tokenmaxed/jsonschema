@@ -237,7 +237,7 @@ func (rr *roots) addSubschema(r *root, ptr jsonPointer) error {
 func (rr *roots) validate(r *root, v any, ptr jsonPointer) error {
 	dialect := r.resource(ptr).dialect
 	meta := dialect.getSchema(rr.assertVocabs, rr.vocabularies)
-	if err := meta.validate(v, rr.regexpEngine, meta, r.resources, rr.assertVocabs, rr.vocabularies, false); err != nil {
+	if err := meta.validate(v, rr.regexpEngine, meta, r.resources, rr.assertVocabs, rr.vocabularies, false, nil); err != nil {
 		up := urlPtr{r.url, ptr}
 		return &SchemaValidationError{URL: up.String(), Err: err}
 	}
