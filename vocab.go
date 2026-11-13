@@ -60,13 +60,16 @@ func (ctx *ValidatorContext) ValueLocation() []string {
 
 // Validate validates v with sch. vpath gives path of v from current context value.
 func (ctx *ValidatorContext) Validate(sch *Schema, v any, vpath []string) error {
+	// The caller may discard the error, so it counts against the budget of
+	// [Schema.ValidateMax] only when reported.
+	vd := ctx.vd.speculative(ctx.vd.left())
 	switch len(vpath) {
 	case 0:
-		return ctx.vd.validateSelf(sch, "", false)
+		return vd.validateSelf(sch, "", false)
 	case 1:
-		return ctx.vd.validateVal(sch, v, vpath[0])
+		return vd.validateVal(sch, v, vpath[0])
 	default:
-		return ctx.vd.validateValue(sch, v, vpath)
+		return vd.validateValue(sch, v, vpath)
 	}
 }
 
@@ -87,7 +90,7 @@ func (ctx *ValidatorContext) AddError(k ErrorKind) {
 
 // AddErrors reports validation-errors of given kind.
 func (ctx *ValidatorContext) AddErrors(errors []*ValidationError, k ErrorKind) {
-	ctx.vd.addErrors(errors, k)
+	ctx.vd.addErrors(ctx.vd.keep(errors), k)
 }
 
 // AddErr reports the given err. This is typically used to report
@@ -95,6 +98,13 @@ func (ctx *ValidatorContext) AddErrors(errors []*ValidationError, k ErrorKind) {
 //
 // NOTE that err must be of type *ValidationError.
 func (ctx *ValidatorContext) AddErr(err error) {
+	if err != nil && ctx.vd.budget != nil {
+		kept := ctx.vd.keep([]*ValidationError{err.(*ValidationError)})
+		if len(kept) == 0 {
+			return // the budget is spent
+		}
+		err = kept[0]
+	}
 	ctx.vd.addErr(err)
 }
 
