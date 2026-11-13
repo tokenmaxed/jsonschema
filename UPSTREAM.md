@@ -31,3 +31,4 @@ into it, so every divergence remains reviewable.
 | B0 | Rename the root module and its imports | Fork baseline |
 | F1 | Build meta-resource JSON Pointers in one pass | [Issue #266](https://github.com/santhosh-tekuri/jsonschema/issues/266), [PR #267](https://github.com/santhosh-tekuri/jsonschema/pull/267) |
 | F2 | Bounded validation of large invalid instances | Not proposed |
+| F3 | Validation that stops after a given number of failures | Not proposed |

@@ -56,6 +56,15 @@ var firstWrappers = []firstWrapper{
 // inside each of firstWrappers, and that its error holds a single failure
 // that Validate reports too.
 func TestValidateFirstSuites(t *testing.T) {
+	walkSuites(t, checkFirst)
+}
+
+// suiteCheck compares a validation method with Validate on v.
+type suiteCheck func(t *testing.T, where string, sch *jsonschema.Schema, v any)
+
+// walkSuites runs check on every instance of the test suites, with the
+// schema alone and inside each of firstWrappers.
+func walkSuites(t *testing.T, check suiteCheck) {
 	drafts := []struct {
 		dir     string
 		draft   *jsonschema.Draft
@@ -73,7 +82,7 @@ func TestValidateFirstSuites(t *testing.T) {
 		}
 		var n firstCounts
 		for _, d := range drafts {
-			firstDir(t, suite, d.dir, d.draft, d.version, &n)
+			firstDir(t, suite, d.dir, d.draft, d.version, check, &n)
 		}
 		t.Logf("%s: %d files, %d instances, %d checks", suite, n.files, n.instances, n.checks)
 		if n.instances == 0 {
@@ -86,7 +95,7 @@ type firstCounts struct {
 	files, instances, checks int
 }
 
-func firstDir(t *testing.T, suite, dpath string, draft *jsonschema.Draft, version int, n *firstCounts) {
+func firstDir(t *testing.T, suite, dpath string, draft *jsonschema.Draft, version int, check suiteCheck, n *firstCounts) {
 	dir := path.Join(suite, "tests", dpath)
 	ee, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
@@ -98,14 +107,14 @@ func firstDir(t *testing.T, suite, dpath string, draft *jsonschema.Draft, versio
 	for _, e := range ee {
 		switch {
 		case e.IsDir():
-			firstDir(t, suite, path.Join(dpath, e.Name()), draft, version, n)
+			firstDir(t, suite, path.Join(dpath, e.Name()), draft, version, check, n)
 		case path.Ext(e.Name()) == ".json" && !slices.Contains(skip, e.Name()):
-			firstFile(t, suite, path.Join(dpath, e.Name()), draft, version, n)
+			firstFile(t, suite, path.Join(dpath, e.Name()), draft, version, check, n)
 		}
 	}
 }
 
-func firstFile(t *testing.T, suite, fpath string, draft *jsonschema.Draft, version int, n *firstCounts) {
+func firstFile(t *testing.T, suite, fpath string, draft *jsonschema.Draft, version int, check suiteCheck, n *firstCounts) {
 	optional := strings.Contains(fpath, "/optional/")
 	file, err := os.Open(path.Join(suite, "tests", fpath))
 	if err != nil {
@@ -170,10 +179,10 @@ func firstFile(t *testing.T, suite, fpath string, draft *jsonschema.Draft, versi
 		for _, test := range group.Tests {
 			n.instances++
 			where := fmt.Sprintf("%s: %s: %s", fpath, group.Description, test.Description)
-			checkFirst(t, where, sch, test.Data)
+			check(t, where, sch, test.Data)
 			n.checks++
 			for _, w := range ws {
-				checkFirst(t, where+": in "+w.w.name, w.sch, w.w.instance(test.Data))
+				check(t, where+": in "+w.w.name, w.sch, w.w.instance(test.Data))
 				n.checks++
 			}
 		}

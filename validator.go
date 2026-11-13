@@ -13,7 +13,7 @@ import (
 )
 
 func (sch *Schema) Validate(v any) error {
-	return sch.validate(v, nil, nil, nil, false, nil, false)
+	return sch.validate(v, nil, nil, nil, false, nil, false, nil)
 }
 
 // ValidateFirst is like [Schema.Validate], but stops at the first error.
@@ -29,10 +29,31 @@ func (sch *Schema) Validate(v any) error {
 // So the error, and the work done after the first failure, do not grow with
 // the number of invalid members in v.
 func (sch *Schema) ValidateFirst(v any) error {
-	return sch.validate(v, nil, nil, nil, false, nil, true)
+	return sch.validate(v, nil, nil, nil, false, nil, true, nil)
 }
 
-func (sch *Schema) validate(v any, regexpEngine RegexpEngine, meta *Schema, resources map[jsonPointer]*resource, assertVocabs bool, vocabularies map[string]*Vocabulary, firstError bool) error {
+// ValidateMax is like [Schema.Validate], but stops once the error holds max
+// failures. It returns nil exactly when Validate returns nil. It panics if
+// max is less than 1.
+//
+// Otherwise the returned *ValidationError holds at most max leaf errors, each
+// of which Validate reports too. If Validate's error has at most max leaf
+// errors, the two errors are equal, up to the order of causes. Errors from
+// subschemas whose result may be discarded, under anyOf, oneOf, not, if,
+// contains and the Validate method of [ValidatorContext], count only if they
+// are kept in the returned error.
+//
+// So the number of errors, and the work done after max failures, do not
+// grow with the number of invalid members in v. Keyword details are complete:
+// an additionalProperties error, for example, lists every extra property.
+func (sch *Schema) ValidateMax(v any, max int) error {
+	if max < 1 {
+		panic("jsonschema: ValidateMax: max must be at least 1")
+	}
+	return sch.validate(v, nil, nil, nil, false, nil, false, &max)
+}
+
+func (sch *Schema) validate(v any, regexpEngine RegexpEngine, meta *Schema, resources map[jsonPointer]*resource, assertVocabs bool, vocabularies map[string]*Vocabulary, firstError bool, budget *int) error {
 	vd := validator{
 		v:            v,
 		vloc:         make([]string, 0, 8),
@@ -42,6 +63,7 @@ func (sch *Schema) validate(v any, regexpEngine RegexpEngine, meta *Schema, reso
 		errors:       nil,
 		boolResult:   false,
 		firstError:   firstError,
+		budget:       budget,
 		regexpEngine: regexpEngine,
 		meta:         meta,
 		resources:    resources,
@@ -76,6 +98,7 @@ type validator struct {
 	errors       []*ValidationError
 	boolResult   bool // is interested to know valid or not (but not actuall error)
 	firstError   bool // is interested in the first error only
+	budget       *int // leaf errors still allowed, shared by subvalidators; nil if unlimited
 	regexpEngine RegexpEngine
 
 	// meta validation
@@ -94,13 +117,13 @@ func (vd *validator) validate() (*uneval, error) {
 		if *s.Bool {
 			return vd.uneval, nil
 		} else {
-			return nil, vd.error(&kind.FalseSchema{})
+			return nil, vd.fail(&kind.FalseSchema{})
 		}
 	}
 
 	// check cycle --
 	if scp := vd.scp.checkCycle(); scp != nil {
-		return nil, vd.error(&kind.RefCycle{
+		return nil, vd.fail(&kind.RefCycle{
 			URL:              s.Location,
 			KeywordLocation1: vd.scp.kwLoc(),
 			KeywordLocation2: scp.kwLoc(),
@@ -109,14 +132,14 @@ func (vd *validator) validate() (*uneval, error) {
 
 	t := typeOf(v)
 	if t == invalidType {
-		return nil, vd.error(&kind.InvalidJsonValue{Value: v})
+		return nil, vd.fail(&kind.InvalidJsonValue{Value: v})
 	}
 
 	// type --
 	if s.Types != nil && !s.Types.IsEmpty() {
 		matched := s.Types.contains(t) || (s.Types.contains(integerType) && t == numberType && isInteger(v))
 		if !matched {
-			return nil, vd.error(&kind.Type{Got: t.String(), Want: s.Types.ToStrings()})
+			return nil, vd.fail(&kind.Type{Got: t.String(), Want: s.Types.ToStrings()})
 		}
 	}
 
@@ -124,9 +147,9 @@ func (vd *validator) validate() (*uneval, error) {
 	if s.Const != nil {
 		ok, k := equals(v, *s.Const)
 		if k != nil {
-			return nil, vd.error(k)
+			return nil, vd.fail(k)
 		} else if !ok {
-			return nil, vd.error(&kind.Const{Got: v, Want: *s.Const})
+			return nil, vd.fail(&kind.Const{Got: v, Want: *s.Const})
 		}
 	}
 
@@ -138,7 +161,7 @@ func (vd *validator) validate() (*uneval, error) {
 			for _, item := range s.Enum.Values {
 				ok, k := equals(v, item)
 				if k != nil {
-					return nil, vd.error(k)
+					return nil, vd.fail(k)
 				} else if ok {
 					matched = true
 					break
@@ -146,7 +169,7 @@ func (vd *validator) validate() (*uneval, error) {
 			}
 		}
 		if !matched {
-			return nil, vd.error(&kind.Enum{Got: v, Want: s.Enum.Values})
+			return nil, vd.fail(&kind.Enum{Got: v, Want: s.Enum.Values})
 		}
 	}
 
@@ -159,7 +182,7 @@ func (vd *validator) validate() (*uneval, error) {
 			err = s.Format.Validate(v)
 		}
 		if err != nil {
-			return nil, vd.error(&kind.Format{Got: v, Want: s.Format.Name, Err: err})
+			return nil, vd.fail(&kind.Format{Got: v, Want: s.Format.Name, Err: err})
 		}
 	}
 
@@ -174,7 +197,7 @@ func (vd *validator) validate() (*uneval, error) {
 		}
 	}
 
-	if vd.stop() {
+	if vd.stop() && len(vd.errors) > 0 {
 		return nil, vd.errors[0]
 	}
 
@@ -328,7 +351,7 @@ func (vd *validator) objValidate(obj map[string]any) {
 				meta = res.dialect.getSchema(vd.assertVocabs, vd.vocabularies)
 				sch = meta
 			}
-			if err := sch.validate(pname, vd.regexpEngine, meta, resources, vd.assertVocabs, vd.vocabularies, vd.firstError); err != nil {
+			if err := sch.validate(pname, vd.regexpEngine, meta, resources, vd.assertVocabs, vd.vocabularies, vd.firstError, vd.budget); err != nil {
 				verr := err.(*ValidationError)
 				verr.InstanceLocation = vd.vloc
 				verr.SchemaURL = s.PropertyNames.Location
@@ -468,10 +491,21 @@ func (vd *validator) arrValidate(arr []any) {
 		var matched []int
 
 		// Every match counts, so a non-matching item does not end the loop.
-		// In firstError mode, only the first non-matching item's error is kept.
+		// In firstError mode, only the first non-matching item's error is kept;
+		// with a budget, the errors of at most as many items as it allows.
+		n := vd.left()
 		for i, item := range arr {
-			if err := vd.validateVal(s.Contains, item, strconv.Itoa(i)); err != nil {
-				if !vd.firstError || len(errors) == 0 {
+			b := n
+			if len(errors) >= n {
+				b = 1 // the error is not kept
+			}
+			if err := vd.speculative(b).validateVal(s.Contains, item, strconv.Itoa(i)); err != nil {
+				switch {
+				case vd.budget != nil:
+					if len(errors) < n {
+						errors = append(errors, err.(*ValidationError))
+					}
+				case !vd.firstError || len(errors) == 0:
 					errors = append(errors, err.(*ValidationError))
 				}
 			} else {
@@ -489,10 +523,10 @@ func (vd *validator) arrValidate(arr []any) {
 		// minContains --
 		if s.MinContains != nil {
 			if len(matched) < *s.MinContains {
-				vd.addErrors(errors, &kind.MinContains{Got: matched, Want: *s.MinContains})
+				vd.addErrors(vd.keep(errors), &kind.MinContains{Got: matched, Want: *s.MinContains})
 			}
 		} else if len(matched) == 0 {
-			vd.addErrors(errors, &kind.Contains{})
+			vd.addErrors(vd.keep(errors), &kind.Contains{})
 		}
 
 		// maxContains --
@@ -579,7 +613,7 @@ func (vd *validator) strValidate(str string) {
 			meta = res.dialect.getSchema(vd.assertVocabs, vd.vocabularies)
 			sch = meta
 		}
-		if err = sch.validate(*deserialized, vd.regexpEngine, meta, resources, vd.assertVocabs, vd.vocabularies, vd.firstError); err != nil {
+		if err = sch.validate(*deserialized, vd.regexpEngine, meta, resources, vd.assertVocabs, vd.vocabularies, vd.firstError, vd.budget); err != nil {
 			verr := err.(*ValidationError)
 			verr.InstanceLocation = vd.vloc
 			verr.SchemaURL = s.Location
@@ -640,7 +674,7 @@ func (vd *validator) condValidate() {
 
 	// not --
 	if s.Not != nil {
-		if vd.validateSelf(s.Not, "", true) == nil {
+		if vd.speculative(1).validateSelf(s.Not, "", true) == nil {
 			vd.addError(&kind.Not{})
 		}
 	}
@@ -653,6 +687,9 @@ func (vd *validator) condValidate() {
 	if len(s.AllOf) > 0 {
 		var errors []*ValidationError
 		for _, sch := range s.AllOf {
+			if vd.stop() {
+				break
+			}
 			if err := vd.validateSelf(sch, "", false); err != nil {
 				errors = append(errors, err.(*ValidationError))
 				if vd.boolResult || vd.firstError {
@@ -674,7 +711,7 @@ func (vd *validator) condValidate() {
 		var matched bool
 		var errors []*ValidationError
 		for _, sch := range s.AnyOf {
-			if err := vd.validateSelf(sch, "", false); err != nil {
+			if err := vd.speculative(vd.left()).validateSelf(sch, "", false); err != nil {
 				errors = append(errors, err.(*ValidationError))
 			} else {
 				matched = true
@@ -685,7 +722,7 @@ func (vd *validator) condValidate() {
 			}
 		}
 		if !matched {
-			vd.addErrors(errors, &kind.AnyOf{})
+			vd.addErrors(vd.keep(errors), &kind.AnyOf{})
 		}
 	}
 
@@ -698,7 +735,11 @@ func (vd *validator) condValidate() {
 		var matched = -1
 		var errors []*ValidationError
 		for i, sch := range s.OneOf {
-			if err := vd.validateSelf(sch, "", matched != -1); err != nil {
+			n := 1 // after a match only the verdict counts
+			if matched == -1 {
+				n = vd.left()
+			}
+			if err := vd.speculative(n).validateSelf(sch, "", matched != -1); err != nil {
 				if matched == -1 {
 					errors = append(errors, err.(*ValidationError))
 				}
@@ -712,7 +753,7 @@ func (vd *validator) condValidate() {
 			}
 		}
 		if matched == -1 {
-			vd.addErrors(errors, &kind.OneOf{Subschemas: nil})
+			vd.addErrors(vd.keep(errors), &kind.OneOf{Subschemas: nil})
 		}
 	}
 
@@ -722,7 +763,7 @@ func (vd *validator) condValidate() {
 
 	// if, then, else --
 	if s.If != nil {
-		if vd.validateSelf(s.If, "", true) == nil {
+		if vd.speculative(1).validateSelf(s.If, "", true) == nil {
 			if s.Then != nil {
 				vd.addErr(vd.validateSelf(s.Then, "", false))
 			}
@@ -774,6 +815,7 @@ func (vd *validator) validateSelf(sch *Schema, refKw string, boolResult bool) er
 		errors:       nil,
 		boolResult:   vd.boolResult || boolResult,
 		firstError:   vd.firstError,
+		budget:       vd.budget,
 		regexpEngine: vd.regexpEngine,
 		meta:         vd.meta,
 		resources:    vd.resources,
@@ -801,6 +843,7 @@ func (vd *validator) validateVal(sch *Schema, v any, vtok string) error {
 		errors:       nil,
 		boolResult:   vd.boolResult,
 		firstError:   vd.firstError,
+		budget:       vd.budget,
 		regexpEngine: vd.regexpEngine,
 		meta:         vd.meta,
 		resources:    vd.resources,
@@ -825,6 +868,7 @@ func (vd *validator) validateValue(sch *Schema, v any, vpath []string) error {
 		errors:       nil,
 		boolResult:   vd.boolResult,
 		firstError:   vd.firstError,
+		budget:       vd.budget,
 		regexpEngine: vd.regexpEngine,
 		meta:         vd.meta,
 		resources:    vd.resources,
@@ -935,28 +979,110 @@ func (vd *validator) error(kind ErrorKind) *ValidationError {
 	}
 }
 
-// stop reports whether vd keeps only its first error and already has it.
-// In that case the result is decided, so the remaining checks are skipped
-// and later errors are dropped.
+// stop reports whether vd keeps only its first error and already has it, or
+// the budget of leaf errors is spent. In that case the result is decided, so
+// the remaining checks are skipped and later errors are dropped.
 func (vd *validator) stop() bool {
-	return vd.firstError && len(vd.errors) > 0
+	return vd.firstError && len(vd.errors) > 0 || vd.budget != nil && *vd.budget <= 0
+}
+
+// fail returns the leaf error that ends vd's validation, which counts
+// against the budget.
+func (vd *validator) fail(kind ErrorKind) *ValidationError {
+	if vd.budget != nil {
+		*vd.budget--
+	}
+	return vd.error(kind)
+}
+
+// left returns how many leaf errors the budget still allows, or 0 without
+// a budget.
+func (vd *validator) left() int {
+	if vd.budget == nil {
+		return 0
+	}
+	return *vd.budget
+}
+
+// speculative returns the validator for a subschema whose errors may be
+// discarded. With a budget, that is a copy of vd with a budget of its own of
+// n leaf errors, at least one so that its result is exact: the subschema's
+// errors count only once [validator.keep] keeps them.
+func (vd *validator) speculative(n int) *validator {
+	if vd.budget == nil {
+		return vd
+	}
+	c := *vd
+	c.budget = &n
+	if n < 1 {
+		*c.budget = 1
+	}
+	return &c
+}
+
+// keep returns the errors of speculative validations, cut to the leaf errors
+// the budget still allows, and counts them against it.
+func (vd *validator) keep(errors []*ValidationError) []*ValidationError {
+	if vd.budget == nil {
+		return errors
+	}
+	kept, n := trim(errors, *vd.budget)
+	*vd.budget -= n
+	return kept
+}
+
+// trim returns the leading errors, cut to hold at most n leaf errors, and the
+// number of leaf errors they hold. An error with causes keeps at least one.
+func trim(errors []*ValidationError, n int) ([]*ValidationError, int) {
+	var kept []*ValidationError
+	leaves := 0
+	for _, e := range errors {
+		if leaves >= n {
+			break
+		}
+		if len(e.Causes) == 0 {
+			leaves++
+		} else {
+			causes, l := trim(e.Causes, n-leaves)
+			if len(causes) < len(e.Causes) || causes[len(causes)-1] != e.Causes[len(causes)-1] {
+				c := *e
+				c.Causes = causes
+				e = &c
+			}
+			leaves += l
+		}
+		kept = append(kept, e)
+	}
+	return kept, leaves
 }
 
 func (vd *validator) addErr(err error) {
-	if err != nil && !vd.stop() {
+	// Without firstError, the error is kept even if the budget is spent:
+	// its leaf errors are counted already.
+	if err != nil && !(vd.firstError && len(vd.errors) > 0) {
 		vd.errors = append(vd.errors, err.(*ValidationError))
 	}
 }
 
 func (vd *validator) addError(kind ErrorKind) {
 	if !vd.stop() {
+		if vd.budget != nil {
+			*vd.budget--
+		}
 		vd.errors = append(vd.errors, vd.error(kind))
 	}
 }
 
 func (vd *validator) addErrors(errors []*ValidationError, kind ErrorKind) {
-	if vd.stop() {
+	if vd.firstError && len(vd.errors) > 0 {
 		return
+	}
+	if vd.budget != nil && len(errors) == 0 {
+		// The error is a leaf. Errors with causes are counted already.
+		if *vd.budget <= 0 {
+			return
+		}
+		*vd.budget--
 	}
 	err := vd.error(kind)
 	err.Causes = errors
